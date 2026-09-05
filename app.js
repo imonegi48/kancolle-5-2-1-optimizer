@@ -720,10 +720,12 @@ function evaluateNoDamage(assignments, formationKey, fleetAA) {
   const ciOutcomes = aaciOutcomeDistribution(assignments);
   const barrageOutcomes = barrageOutcomeDistribution(assignments);
   let fleetNoHit = 0, expectedHitShips = 0, expectedHits = 0, flagNoHit = 0, allSlotsDead = 0;
+  const shipNoHit = new Array(n).fill(0);
   const patternDetails = [];
 
   for (const pattern of ENEMY_521_PATTERNS) {
     let pNoHitPattern = 0, pDeadPattern = 0, hitsPattern = 0, hitShipsPattern = 0, flagNoHitPattern = 0;
+    const shipNoHitPattern = new Array(n).fill(0);
     for (const ci of ciOutcomes) {
       const slotSurvive = pattern.slots.map(s => slotSurvivalProbability(s, assignments, fleetAA, ci));
       const deadAllGivenCi = slotSurvive.reduce((prod,p)=>prod*(1-p),1);
@@ -748,6 +750,7 @@ function evaluateNoDamage(assignments, formationKey, fleetAA) {
           const q = vulnerableHit[i];
           for (const survive of slotSurvive) shipNoHit *= (1 - survive * q);
           expHitShips += 1 - shipNoHit;
+          shipNoHitPattern[i] += branch * shipNoHit;
           if (i === 0) flagNoHitPattern += branch * shipNoHit;
         }
         hitShipsPattern += branch * expHitShips;
@@ -759,8 +762,9 @@ function evaluateNoDamage(assignments, formationKey, fleetAA) {
     expectedHits += hitsPattern / 3;
     expectedHitShips += hitShipsPattern / 3;
     flagNoHit += flagNoHitPattern / 3;
+    for (let i=0;i<n;i++) shipNoHit[i] += shipNoHitPattern[i] / 3;
   }
-  return { fleetNoHit, expectedHitShips, expectedHits, flagNoHit, allSlotsDead, patternDetails, ciOutcomes, targetP, hitP };
+  return { fleetNoHit, expectedHitShips, expectedHits, flagNoHit, allSlotsDead, shipNoHit, patternDetails, ciOutcomes, targetP, hitP };
 }
 
 function calcWeightedAA(shipDeck, selectedGroups, equipmentBonusAA = 0) {
@@ -1588,15 +1592,18 @@ function renderResult(best, fleetKey, shouldScroll = true) {
   const barrageCount = best.assignments.filter(x => x.config.barrageRate != null).length;
   const isRecommended = state.recommendedFormationKey === best.formationKey;
   els.summary.innerHTML = `
-    <span class="pill">${best.metrics.formation.name}${isRecommended ? '・推奨' : ''}</span>
-    <span class="pill">噴進砲配布 ${best.metrics.rocketCovered}/${barrageCount}</span>
-    <span class="pill">噴進100% ${best.metrics.hundred}/${barrageCount}</span>
-    <span class="pill">期待撃墜 ${Number(best.metrics.expectedShotdown || 0).toFixed(2)}機</span>
-    <span class="pill">敵残存期待 ${Number(best.metrics.expectedRemaining || 0).toFixed(2)}機</span>
-    <span class="pill">C艦隊無被弾 ${(best.metrics.fleetNoHit*100).toFixed(2)}%</span>
-    <span class="pill">被弾率 ${((1-best.metrics.fleetNoHit)*100).toFixed(2)}%</span>
-    <span class="pill">全攻撃枯れ ${(best.metrics.allSlotsDead*100).toFixed(2)}%</span>
-    <span class="pill">艦隊防空 ${best.metrics.fleetAA.toFixed(2)}</span>
+    <div class="summary-primary">
+      <span class="pill important">${best.metrics.formation.name}${isRecommended ? '・推奨' : ''}</span>
+      <span class="pill important">噴進100% ${best.metrics.hundred}/${barrageCount}</span>
+      <span class="pill important">無被弾 ${(best.metrics.fleetNoHit*100).toFixed(2)}%</span>
+    </div>
+    <div class="summary-secondary">
+      噴進砲配布 ${best.metrics.rocketCovered}/${barrageCount}
+      ・期待撃墜 ${Number(best.metrics.expectedShotdown || 0).toFixed(2)}機
+      ・敵残存 ${Number(best.metrics.expectedRemaining || 0).toFixed(2)}機
+      ・全枯れ ${(best.metrics.allSlotsDead*100).toFixed(2)}%
+      ・艦隊防空 ${best.metrics.fleetAA.toFixed(2)}
+    </div>
   `;
   renderFormationTabs();
   els.shipResults.innerHTML = '';
@@ -1610,16 +1617,31 @@ function renderResult(best, fleetKey, shouldScroll = true) {
     const rateClass = rate == null ? '' : rate >= 100 ? 'ok-text' : rate > 0 ? 'warn-text' : 'bad-text';
     const ciList = detectAaciForAssignment(a, idx);
     const ciText = ciList.length ? ciList.map(x => `${x.label}(${(x.rate*100).toFixed(1)}%)`).join(' / ') : 'なし';
+    const noDamage = best.metrics.shipNoHit?.[idx] ?? 0;
+    const damageRate = Math.max(0, Math.min(1, 1 - noDamage));
+    const damageClass = damageRate <= 0.0005 ? 'ok-text' : damageRate < 0.15 ? 'warn-text' : 'bad-text';
+    const equipHtml = regular.map((x,i)=>`<div class="equip-item"><span class="slot-no">${i+1}.</span><span>${x}</span></div>`).join('');
     card.innerHTML = `
-      <div><div class="ship-name">${m.api_name || `艦ID ${d.id}`}${idx===0?' <small>旗艦</small>':''}</div><div class="ship-meta">Lv.${d.lv} / 素対空推定 ${estimateBaseAA(d)}（入力対空 ${d.aa}） / 運 ${d.luck} / 航空被命中 ${(calcAirHitRate(d,c.all,idx===0)*100).toFixed(0)}%</div></div>
-      <div><ol class="equip-list">${regular.map(x=>`<li>${x}</li>`).join('')}</ol><div class="ship-meta">補強増設：${exText}</div></div>
-      <div class="metrics">
-        <div class="metric">噴進弾幕<b class="${rateClass}">${rate == null ? '使用不可' : `${rate.toFixed(1)}%`}</b></div>
-        <div class="metric">加重対空<b>${c.weightedAA}</b><small>割合撃墜 ${(c.weightedAA / 4).toFixed(2)}%</small></div>
-        <div class="metric">艦隊対空ボーナス<b>${c.fleetBonus}</b></div>
-        <div class="metric">噴進砲改二<b>${c.all.filter(g=>g.id===ROCKET_ID).length}</b></div>
-        <div class="metric">航空回避項<b>${c.evasionTerm}</b><small>${idx===0?'cond49':'cond0'}</small></div>
-        <div class="metric">対空CI候補<b>${ciText}</b></div>
+      <div class="ship-ident">
+        <div class="ship-name">${m.api_name || `艦ID ${d.id}`}${idx===0?' <small>旗艦</small>':''}</div>
+        <div class="ship-meta">Lv.${d.lv} / 運 ${d.luck} / 素対空 ${estimateBaseAA(d)}</div>
+      </div>
+      <div class="equip-block">
+        <div class="equip-grid">${equipHtml}</div>
+        <div class="ex-line"><span>増設</span><strong>${exText}</strong></div>
+      </div>
+      <div class="key-metrics">
+        <div class="key-metric damage-key"><span>被ダメ率</span><b class="${damageClass}">${(damageRate*100).toFixed(1)}%</b></div>
+        <div class="key-metric barrage-key"><span>噴進弾幕</span><b class="${rateClass}">${rate == null ? '使用不可' : `${rate.toFixed(1)}%`}</b></div>
+        <div class="key-metric ci-key"><span>対空CI</span><b>${ciText}</b></div>
+      </div>
+      <div class="ref-metrics">
+        <span>加重対空 <b>${c.weightedAA}</b></span>
+        <span>艦隊対空 <b>${c.fleetBonus}</b></span>
+        <span>割合撃墜 <b>${(c.weightedAA / 4).toFixed(1)}%</b></span>
+        <span>航空被命中 <b>${(calcAirHitRate(d,c.all,idx===0)*100).toFixed(0)}%</b></span>
+        <span>回避項 <b>${c.evasionTerm}</b> (${idx===0?'cond49':'cond0'})</span>
+        <span>噴進砲 <b>${c.all.filter(g=>g.id===ROCKET_ID).length}</b></span>
       </div>`;
     els.shipResults.appendChild(card);
   });
