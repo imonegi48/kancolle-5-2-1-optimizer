@@ -1251,7 +1251,16 @@ function phase1MachineGunAllocation(barrageShips, inventory, invMap, rocketStock
       const B = { assignments:[{ shipKey:s.key, ship:s, config:b }] };
       return comparePhase1States(A,B);
     });
-    configs.set(s.key, list.slice(0, 240));
+
+    // 噴進砲不足時は、各艦が「噴進砲なし」でフェーズ1を抜けられる候補を必ず残す。
+    // ここを上位240件の単純切り捨てにすると、噴進砲あり候補だけで埋まり、
+    // stock < 噴進可能艦数のときに全艦へロケットを要求する形になって探索不能になる。
+    const limited = list.slice(0, 240);
+    if (rocketStock < barrageShips.length) {
+      const noRocket = list.find(c => (c.rocketCount || 0) === 0 && c.all.length === 0);
+      if (noRocket) pushUniqueConfig(limited, noRocket);
+    }
+    configs.set(s.key, limited);
   }
 
   const requireRocketOnAll = rocketStock >= barrageShips.length;
@@ -1517,14 +1526,29 @@ function prepareFleetOptimization(deckFleet, inventory) {
   const p1 = phase1MachineGunAllocation(barrageShips, inventory, invMap, rocketStock);
   const barrageAssignments = optimizeHundredBarrageDefense(barrageShips, p1.assignments, inventory, invMap);
 
-  return { deckFleet, inventory, invMap, ships, barrageShips, nonBarrageShips, rocketStock, p1, barrageAssignments };
+  // 噴進砲が足りない場合、フェーズ1で噴進砲を受け取れなかった噴進可能艦は、
+  // フェーズ2では通常の非噴進弾幕艦と同じ「対空砲火で守る対象」として扱う。
+  // その艦のフェーズ1空構成は固定せず、フェーズ2で高角砲・機銃・電探・対空CI候補を再探索する。
+  const barrageByKey = new Map(barrageAssignments.map(a => [a.shipKey, a]));
+  const uncoveredBarrageShips = barrageShips.filter(s => Number(barrageByKey.get(s.key)?.config?.rocketCount || 0) === 0);
+  const coveredBarrageAssignments = barrageAssignments.filter(a => Number(a.config?.rocketCount || 0) > 0);
+  const defenseShips = [...nonBarrageShips, ...uncoveredBarrageShips]
+    .sort((a,b) => Number(a.key.slice(1)) - Number(b.key.slice(1)));
+
+  return {
+    deckFleet, inventory, invMap, ships, barrageShips, nonBarrageShips, rocketStock, p1,
+    barrageAssignments, coveredBarrageAssignments, uncoveredBarrageShips, defenseShips,
+  };
 }
 
 function optimizePreparedFormation(prepared, formationKey, forceFillOverride = null) {
-  const { inventory, invMap, ships, barrageShips, nonBarrageShips, rocketStock, p1, barrageAssignments } = prepared;
+  const {
+    inventory, invMap, ships, barrageShips, nonBarrageShips, rocketStock, p1,
+    barrageAssignments, coveredBarrageAssignments, uncoveredBarrageShips, defenseShips,
+  } = prepared;
   const p2 = optimizeNonBarrageDefense(
-    nonBarrageShips,
-    barrageAssignments,
+    defenseShips,
+    coveredBarrageAssignments,
     inventory,
     invMap,
     formationKey,
@@ -1542,7 +1566,9 @@ function optimizePreparedFormation(prepared, formationKey, forceFillOverride = n
     rocketStock,
     barrageCount:barrageShips.length,
     allHundredByMachineGun:p1.allHundred,
-    hasNonBarrageShip:nonBarrageShips.length>0,
+    hasNonBarrageShip:defenseShips.length>0,
+    nativeNonBarrageCount:nonBarrageShips.length,
+    uncoveredBarrageCount:uncoveredBarrageShips.length,
     shipCount:ships.length,
   };
   return best;
