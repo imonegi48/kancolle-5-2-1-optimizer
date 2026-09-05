@@ -1,0 +1,6 @@
+# 第三者マスターデータを誤ってリポジトリへ載せない
+master.json
+START2.json
+start2.json
+*START2*.json
+*start2*.json

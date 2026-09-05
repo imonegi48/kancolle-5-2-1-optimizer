@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light dark" />
+  <title>5-2-1 噴進弾幕装備探索ツール</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">たのしい空襲マスレベリング</p>
+        <h1>噴進弾幕装備探索ツール</h1>
+        <p class="lead">74式からコピーしたDeckBuilder編成と全所持装備を読み込み、5-2-Cで艦隊全体が被ダメ0になる確率を最大化するよう装備を再配分します。</p>
+      </div>
+      <div id="masterStatus" class="status pending">マスターデータ確認中…</div>
+    </header>
+
+    <section class="panel master-panel">
+      <div class="master-head">
+        <div>
+          <p class="eyebrow">初回のみ</p>
+          <h2>マスターデータ設定</h2>
+          <p class="small">GitHub Pages側では艦これのマスターデータを配布しません。利用者自身が公開APIのJSONをコピーし、このブラウザ内だけに保存します。</p>
+        </div>
+        <div id="masterSavedAt" class="small muted">ブラウザ保存: なし</div>
+      </div>
+
+      <div class="master-steps">
+        <button id="openMasterBtn" class="secondary" type="button">① マスターJSONを開く</button>
+        <span class="step-text">開いたページで <kbd>Ctrl</kbd>+<kbd>A</kbd> → <kbd>Ctrl</kbd>+<kbd>C</kbd>。戻って <kbd>Ctrl</kbd>+<kbd>V</kbd> でも自動読込</span>
+        <button id="clipboardMasterBtn" class="primary" type="button">② クリップボードから読み込む</button>
+      </div>
+
+      <details class="advanced">
+        <summary>クリップボード読込が使えない場合 / マスター更新</summary>
+        <p>下欄へJSONをそのまま <kbd>Ctrl</kbd>+<kbd>V</kbd> できます。Start2と判定できれば貼り付け時点で自動読込します。取得先は <a href="https://api.kcwiki.moe/start2" target="_blank" rel="noopener noreferrer">Kcwiki API / start2</a> です。</p>
+        <textarea id="masterInput" spellcheck="false" placeholder='{"api_result":1,"api_data":{"api_mst_ship":[...]}}'></textarea>
+        <div class="inline-actions">
+          <button id="loadMasterBtn" class="secondary" type="button">貼り付け内容を読み込む</button>
+          <button id="clearMasterBtn" class="danger-ghost" type="button">ブラウザ保存を削除</button>
+        </div>
+        <p class="small muted">読み込んだJSONはIndexedDBに保存されます。GitHubや本ツールのサーバーへアップロードしません。新艦・新装備追加後は同じ手順で上書き更新できます。</p>
+      </details>
+    </section>
+
+    <section class="panel">
+      <div class="grid two">
+        <label class="field">
+          <span>編成（DeckBuilder v4）</span>
+          <textarea id="fleetInput" spellcheck="false" placeholder='{"version":4,"hqlv":120,"f1":{...}}'></textarea>
+        </label>
+        <div class="field">
+          <label for="inventoryInput">所持装備（74式「艦隊分析装備へコピー → 全」）</label>
+          <textarea id="inventoryInput" spellcheck="false" placeholder='[{"api_slotitem_id":274,"api_level":0}, ...]'></textarea>
+          <div class="inline-actions inventory-cache-actions">
+            <span id="inventorySavedAt" class="small muted">所持装備のブラウザ保存: 確認中…</span>
+            <button id="clearInventoryBtn" class="danger-ghost compact" type="button">保存済み所持装備を削除</button>
+          </div>
+          <span class="small muted">正常な所持装備JSONを一度貼り付けると、このブラウザ内に自動保存され、次回アクセス時に復元されます。</span>
+        </div>
+      </div>
+
+      <div class="controls">
+        <label class="select-wrap">
+          <span>対象艦隊</span>
+          <select id="fleetSelect" disabled><option>編成を読み込んでください</option></select>
+        </label>
+        <div class="formation-auto">
+          <span>陣形</span>
+          <strong id="formationPlan">自動比較</strong>
+          <small>最適化後に陣形別結果を切替できます</small>
+        </div>
+        <button id="optimizeBtn" class="primary" disabled>装備を最適化</button>
+      </div>
+
+
+
+      <div id="message" class="message" hidden></div>
+    </section>
+
+    <section id="resultSection" class="panel" hidden>
+      <div class="result-head">
+        <div>
+          <p class="eyebrow">最適化結果</p>
+          <h2 id="resultTitle">第1艦隊</h2>
+        </div>
+        <div class="summary" id="summary"></div>
+      </div>
+      <div id="formationTabs" class="formation-tabs"></div>
+      <div id="shipResults" class="ship-list"></div>
+      <div class="result-actions">
+        <button id="copyDeckBtn" class="secondary">最適化後DeckBuilder JSONをコピー</button>
+      </div>
+    </section>
+
+    <section class="panel notes">
+      <h2>現在の評価順</h2>
+      <ol>
+        <li>噴進弾幕可能艦へ噴進砲改二を最低1本ずつ配れる隻数を最大化</li>
+        <li>全噴進艦を100%以上にできる場合は、全艦100%以上を必須条件にする</li>
+        <li>その条件下で、5-2-Cを艦隊全体が被ダメ0で終える確率を最大化</li>
+        <li>同率なら期待被弾艦数、期待命中回数、旗艦無被弾率、敵攻撃スロット全滅率の順に比較</li>
+      </ol>
+      <p class="small">制空権喪失固定で、5-2-Cの3敵編成を各1/3として評価します。Stage1損耗、Stage2の迎撃艦抽選・割合/固定撃墜・主要な強対空CIに加え、噴進弾幕の発動/不発、航空戦の回避・命中率、各陣形の艦隊防空補正・被ターゲット率、「かばう」まで確率計算します。condは旗艦49、随伴0（赤疲労）、燃料ペナルティなし固定です。噴進艦の100%を確保した後は、艦隊防空や対空CIを含めて非噴進弾幕艦の被弾を最小化します。</p>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
