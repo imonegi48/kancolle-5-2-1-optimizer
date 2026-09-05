@@ -1,5 +1,6 @@
 'use strict';
 
+const APP_RELEASE = Object.freeze({ version: 'V1', updatedAt: '2026/09/06 00:50 JST', updatedAtIso: '2026-09-06T00:50:00+09:00' });
 const MASTER_SOURCE_URL = 'https://api.kcwiki.moe/start2';
 const MASTER_CACHE_DB = 'kancolle-521-optimizer';
 const MASTER_CACHE_STORE = 'settings';
@@ -60,7 +61,18 @@ const els = {
   inventorySavedAt: $('inventorySavedAt'), clearInventoryBtn: $('clearInventoryBtn'),
   resultSection: $('resultSection'), resultTitle: $('resultTitle'), summary: $('summary'), shipResults: $('shipResults'), copyDeckBtn: $('copyDeckBtn'),
   formationTabs: $('formationTabs'), formationPlan: $('formationPlan'),
+  releaseVersion: $('releaseVersion'), releaseUpdatedAt: $('releaseUpdatedAt'),
 };
+
+function renderReleaseInfo() {
+  if (els.releaseVersion) els.releaseVersion.textContent = APP_RELEASE.version;
+  if (els.releaseUpdatedAt) {
+    els.releaseUpdatedAt.textContent = APP_RELEASE.updatedAt;
+    els.releaseUpdatedAt.dateTime = APP_RELEASE.updatedAtIso;
+  }
+}
+
+renderReleaseInfo();
 
 function showMessage(text, isError = true) {
   els.message.hidden = !text;
@@ -1465,13 +1477,35 @@ function optimizeNonBarrageDefense(nonBarrageShips, fixedAssignments, inventory,
     if (!list.length && forceFill) return optimizeNonBarrageDefense(nonBarrageShips, fixedAssignments, inventory, invMap, formationKey, false);
     if (!list.length) throw new Error(`${s.master.api_name}のフェーズ2候補を生成できませんでした。`);
     // 強CI候補・艦隊防空・加重対空の代表を残す。
-    list.sort((a,b) => {
+    // ただし上位候補だけに切ると、複数艦が同じ希少装備を奪い合って
+    // 「実際は組めるのに全候補が在庫衝突してフェーズ2失敗」になる。
+    // そこで軽量構成（少ない装備数）も必ず一定数残し、forceFill=false 時は
+    // 空構成も必ず残して、所持装備不足を正常系として扱う。
+    const scored = [...list].sort((a,b) => {
       const aa = { shipKey:s.key, ship:s, config:a };
       const bb = { shipKey:s.key, ship:s, config:b };
       const sa = phase2LocalScore([aa]), sb = phase2LocalScore([bb]);
       return sb-sa;
     });
-    configs.set(s.key, list.slice(0, 180));
+    const light = [...list].sort((a,b) => {
+      if (a.all.length !== b.all.length) return a.all.length - b.all.length;
+      const ac = Object.values(a.counts || {}).reduce((x,y)=>x+y,0);
+      const bc = Object.values(b.counts || {}).reduce((x,y)=>x+y,0);
+      return ac - bc;
+    });
+    const kept = [];
+    const seenCfg = new Set();
+    const addCfg = cfg => {
+      if (!cfg) return;
+      const sig = cfg.all.map(g=>g.key).sort().join('|') + `#${cfg.ex?.key || ''}`;
+      if (seenCfg.has(sig)) return;
+      seenCfg.add(sig);
+      kept.push(cfg);
+    };
+    scored.slice(0, 145).forEach(addCfg);
+    light.slice(0, 35).forEach(addCfg);
+    if (!forceFill) addCfg(list.find(cfg => cfg.all.length === 0));
+    configs.set(s.key, kept.slice(0, 180));
   }
 
   const BEAM = 1600;
