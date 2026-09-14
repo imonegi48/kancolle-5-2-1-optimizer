@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_RELEASE = Object.freeze({ version: 'V1', updatedAt: '2026/09/06 00:50 JST', updatedAtIso: '2026-09-06T00:50:00+09:00' });
+const APP_RELEASE = Object.freeze({ version: 'V1', updatedAt: '2026/09/15 06:19 JST', updatedAtIso: '2026-09-15T06:19:00+09:00' });
 const MASTER_SOURCE_URL = 'https://api.kcwiki.moe/start2';
 const MASTER_CACHE_DB = 'kancolle-521-optimizer';
 const MASTER_CACHE_STORE = 'settings';
@@ -334,6 +334,7 @@ function recommendableFormationKeys(n) {
 }
 
 function updateFormationAvailability() {
+  updateRouteWarning();
   const fleetKey = els.fleetSelect.value || state.selectedFleetKey;
   const n = state.deck && fleetKey ? fleetShipCount(state.deck[fleetKey]) : 0;
   if (!els.formationPlan) return;
@@ -343,7 +344,13 @@ function updateFormationAvailability() {
 }
 
 function parseDeckAndPopulate() {
-  if (!els.fleetInput.value.trim()) return;
+  els.resultSection.hidden = true;
+  if (!els.fleetInput.value.trim()) {
+    state.deck = null;
+    els.fleetSelect.disabled = true;
+    updateReadyState();
+    return;
+  }
   try {
     state.deck = parseJson(els.fleetInput.value, '編成');
     const fleets = Object.keys(state.deck).filter(k => /^f[1-4]$/.test(k) && state.deck[k]);
@@ -372,7 +379,37 @@ function parseDeckAndPopulate() {
 }
 
 function updateReadyState() {
+  updateRouteWarning();
   els.optimizeBtn.disabled = !(state.master && state.deck && els.inventoryInput.value.trim());
+}
+
+// 出典: https://wikiwiki.jp/kancolle/南方海域/5-2 （分岐法則更新 2026/01/28）
+function initialRouteAssessment(masters) {
+  const types = masters.map(shipStype);
+  const battleships = types.filter(t => [8, 9, 10].includes(t)).length;
+  const carriers = types.filter(t => [7, 11, 18].includes(t)).length;
+  const regularCarriers = types.filter(t => [11, 18].includes(t)).length;
+  const reasons = [];
+  if (battleships + carriers >= 5) reasons.push('戦艦級＋空母系が5隻以上');
+  if (battleships >= 4) reasons.push('戦艦級が4隻以上');
+  if (regularCarriers >= 3) reasons.push('正規空母（装甲空母含む）が3隻以上');
+  if (types.some(t => [13, 14].includes(t))) reasons.push('潜水艦・潜水空母を編成');
+  return { reasons, unknown: types.some(t => t < 1) };
+}
+
+function updateRouteWarning(fleetKey = els.fleetSelect.value || state.selectedFleetKey, elementId = 'routeWarning') {
+  const element = $(elementId);
+  if (!element) return;
+  const fleet = state.deck?.[fleetKey];
+  const decks = Object.entries(fleet || {}).filter(([k, d]) => /^s[1-6]$/.test(k) && Number(d?.id) > 0).map(([, d]) => d);
+  const assessment = initialRouteAssessment(decks.map(d => state.shipsById.get(Number(d.id))));
+  let text = '';
+  if (decks.length && assessment.reasons.length) {
+    text = `⚠ 5-2初手でA（燃料渦潮）へ逸れる可能性があります。該当条件：${assessment.reasons.join('／')}。初手はA・Bのランダムです。最適化は実行できます。被ダメ率は渦潮の燃料減少を含まない5-2-Cの推定値です。`;
+  }
+  if (decks.length && assessment.unknown) text += ' 艦種未確認の艦があります。マスターデータを読み込み・更新すると分岐条件を再判定します。';
+  element.textContent = text.trim();
+  element.hidden = !text;
 }
 
 function itemIcon(item) { return Number(item?.api_type?.[3] ?? -1); }
@@ -675,21 +712,30 @@ function barrageOutcomeDistribution(assignments) {
   return states;
 }
 
-function targetProbabilities(n, formationKey) {
+function targetProbabilities(masters, formationKey) {
+  const n = masters.length;
   if (n <= 0) return [];
-  let raw = new Array(n).fill(1);
+  // 5-2-C航空攻撃では潜水艦・潜水空母を対象から除外する。
+  // 警戒艦の区分は潜水艦を抜いて詰めず、元の艦隊の位置を維持する。
+  const eligible = masters.map(m => ![13, 14].includes(shipStype(m)));
+  let raw = eligible.map(x => x ? 1 : 0);
   if (formationKey === 'vanguard' && n >= 4) {
     const mainCount = n >= 6 ? 3 : 2;
-    raw = raw.map((_,i) => i < mainCount ? 1 : 3); // 警戒艦へ約3倍集中の近似
+    const count = raw.reduce((sum, x) => sum + x, 0);
+    const mainTargets = raw.slice(0, mainCount).reduce((sum, x) => sum + x, 0);
+    // 主力艦を引いた場合のみ対象艦から再抽選するWikiの式。
+    raw = raw.map((weight,i) => weight * (mainTargets + (i < mainCount ? 0 : count)));
   }
   const total = raw.reduce((a,b)=>a+b,0);
+  if (!total) return raw;
   raw = raw.map(x => x/total);
   const cover = COVER_RATE[formationKey] || 0;
-  if (n <= 1 || cover <= 0) return raw;
+  const escorts = eligible.reduce((sum, yes, i) => sum + (yes && i > 0 ? 1 : 0), 0);
+  if (!eligible[0] || !escorts || cover <= 0) return raw;
   const out = [...raw];
   const flagRaw = raw[0];
   out[0] = flagRaw * (1-cover);
-  for (let i=1;i<n;i++) out[i] += flagRaw * cover / (n-1);
+  for (let i=1;i<n;i++) if (eligible[i]) out[i] += flagRaw * cover / escorts;
   return out;
 }
 
@@ -727,7 +773,7 @@ function slotSurvivalProbability(initialSlot, assignments, fleetAA, ci) {
 
 function evaluateNoDamage(assignments, formationKey, fleetAA) {
   const n = assignments.length;
-  const targetP = targetProbabilities(n, formationKey);
+  const targetP = targetProbabilities(assignments.map(a => a.ship.master), formationKey);
   const hitP = assignments.map((a,i) => calcAirHitRate(a.ship.deck, a.config.all, i === 0));
   const ciOutcomes = aaciOutcomeDistribution(assignments);
   const barrageOutcomes = barrageOutcomeDistribution(assignments);
@@ -1646,6 +1692,7 @@ function renderFormationTabs() {
 }
 
 function renderResult(best, fleetKey, shouldScroll = true) {
+  updateRouteWarning(fleetKey, 'resultRouteWarning');
   const fleetNo = Number(fleetKey.slice(1));
   const fleet = state.deck[fleetKey];
   els.resultTitle.textContent = `第${fleetNo}艦隊：${fleet.name || '(名称なし)'}`;

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="color-scheme" content="light dark" />
   <title>5-2-1 噴進弾幕装備最適化</title>
-  <link rel="stylesheet" href="styles.css?v=202609060050" />
+  <link rel="stylesheet" href="styles.css?v=202609150619" />
 </head>
 <body>
   <main class="shell">
@@ -18,7 +18,7 @@
       <div class="hero-side">
         <div class="release-badge" title="公開版の更新日時">
           <strong id="releaseVersion">V1</strong>
-          <span>最終更新 <time id="releaseUpdatedAt" datetime="2026-09-06T00:50:00+09:00">2026/09/06 00:50 JST</time></span>
+          <span>最終更新 <time id="releaseUpdatedAt" datetime="2026-09-15T06:19:00+09:00">2026/09/15 06:19 JST</time></span>
         </div>
         <div id="masterStatus" class="status pending">マスターデータ確認中…</div>
       </div>
@@ -84,6 +84,7 @@
 
 
 
+      <div id="routeWarning" class="route-warning" role="status" aria-live="polite" hidden></div>
       <div id="message" class="message" hidden></div>
     </section>
 
@@ -95,6 +96,7 @@
         </div>
         <div class="summary" id="summary"></div>
       </div>
+      <div id="resultRouteWarning" class="route-warning" role="status" aria-live="polite" hidden></div>
       <div id="formationTabs" class="formation-tabs"></div>
       <div id="shipResults" class="ship-list"></div>
       <div class="result-actions">
@@ -113,6 +115,6 @@
       <p class="small">制空権喪失固定で、5-2-Cの3敵編成を各1/3として評価します。Stage1損耗、Stage2の迎撃艦抽選・割合/固定撃墜・主要な強対空CIに加え、噴進弾幕の発動/不発、航空戦の回避・命中率、各陣形の艦隊防空補正・被ターゲット率、「かばう」まで確率計算します。condは旗艦49、随伴0（赤疲労）、燃料ペナルティなし固定です。噴進艦の100%を確保した後は、艦隊防空や対空CIを含めて非噴進弾幕艦の被弾を最小化します。</p>
     </section>
   </main>
-  <script src="app.js?v=202609060050"></script>
+  <script src="app.js?v=202609150619"></script>
 </body>
 </html>

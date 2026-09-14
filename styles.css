@@ -241,3 +241,5 @@ kbd { border: 1px solid #475569; border-bottom-width: 2px; background: #0b1220; 
   .key-metrics { grid-template-columns: 1fr 1fr; }
   .ci-key { grid-column: 1 / -1; }
 }
+.route-warning { margin: 16px 0; padding: 14px 16px; border: 2px solid #b45309; border-radius: 10px; background: #fff7ed; color: #7c2d12; line-height: 1.7; }
+.route-warning[hidden] { display: none; }
